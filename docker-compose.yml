@@ -1,0 +1,52 @@
+# Planspiel-Plattform: Datenbank, Backend und Frontend als getrennte Container.
+#   docker compose up --build        → http://localhost:8080
+#   docker compose up -d db          → nur die Datenbank für die lokale Entwicklung
+services:
+  db:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_USER: planspiel
+      POSTGRES_PASSWORD: planspiel
+      POSTGRES_DB: planspiel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U planspiel -d planspiel"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      network: ${BUILD_NETWORK:-default}
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-slim}
+    environment:
+      DATABASE_URL: postgres://planspiel:planspiel@db:5432/planspiel
+      JWT_SECRET: ${JWT_SECRET:-bitte-in-der-env-datei-aendern}
+      DEMO_DATEN: ${DEMO_DATEN:-1}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      network: ${BUILD_NETWORK:-default}
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-slim}
+    environment:
+      API_URL: http://api:8787
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

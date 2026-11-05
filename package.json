@@ -1,0 +1,14 @@
+{
+  "name": "planspiel-plattform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @planspiel/api --filter @planspiel/web dev",
+    "db:migrate": "pnpm --filter @planspiel/api db:migrate",
+    "db:seed": "pnpm --filter @planspiel/api db:seed",
+    "test": "pnpm -r --if-present test",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
