@@ -1,15 +1,17 @@
 # Planspiel-Plattform: Datenbank, Backend und Frontend als getrennte Container.
 #   docker compose up --build        → http://localhost:8080
 #   docker compose up -d db          → nur die Datenbank für die lokale Entwicklung
+# Einstellungen stehen in .env (Vorlage: .env.example).
 services:
   db:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     environment:
       POSTGRES_USER: planspiel
-      POSTGRES_PASSWORD: planspiel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORT:-planspiel}
       POSTGRES_DB: planspiel
     ports:
-      - "5432:5432"
+      # Nur auf diesem Rechner erreichbar, nicht von außen
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -26,9 +28,12 @@ services:
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:22-slim}
     environment:
-      DATABASE_URL: postgres://planspiel:planspiel@db:5432/planspiel
-      JWT_SECRET: ${JWT_SECRET:-bitte-in-der-env-datei-aendern}
+      DATABASE_URL: postgres://planspiel:${POSTGRES_PASSWORT:-planspiel}@db:5432/planspiel
+      JWT_SECRET: ${JWT_SECRET:-}
       DEMO_DATEN: ${DEMO_DATEN:-1}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+      ADMIN_PASSWORT: ${ADMIN_PASSWORT:-}
     depends_on:
       db:
         condition: service_healthy

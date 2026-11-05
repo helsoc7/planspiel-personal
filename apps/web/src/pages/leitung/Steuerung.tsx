@@ -45,7 +45,7 @@ export function Steuerung() {
 
   return (
     <div className="flex flex-col gap-5">
-      <Seitentitel titel="Spielsteuerung" rechts={<Chip ton="info" className="text-sm">Kurscode {d.kurs.code}</Chip>} />
+      <Seitentitel titel="Spielsteuerung" rechts={<Chip ton={d.kurs.codeTeilnehmer ? "info" : "warn"} className="text-sm">{d.kurs.codeTeilnehmer ? `Teilnehmer-Code ${d.kurs.codeTeilnehmer}` : "Teilnehmer-Code gesperrt"}</Chip>} />
       <div className="flex flex-wrap gap-1.5" aria-label="Runden">
         {d.runden.map((r) => (
           <button key={r.nr} onClick={() => setNr(r.nr)} aria-current={r.nr === nr}

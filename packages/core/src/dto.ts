@@ -2,17 +2,31 @@
 import type { AbgabeStatus, Rolle, RundenStatus } from "./ablauf";
 import type { Entscheidung, RundenErgebnis, ZielStatus } from "./regelwerk";
 
-export interface BenutzerDto { id: string; email: string; name: string }
+/**
+ * istAdmin: darf Kurse anlegen und Spielleiter-Codes verwalten.
+ * passwortAendern: hat ein Einmalpasswort und muss es vor allem anderen ändern.
+ */
+export interface BenutzerDto { id: string; email: string; name: string; istAdmin: boolean; passwortAendern: boolean }
 
 export interface SpielpaketKurz {
   id: string; version: number; name: string; thema: string; status: "entwurf" | "freigegeben" | "archiviert";
   runden: number; akteure: number; begriffAkteure: string;
+  /** Typ der Fabrik, die das Paket ausführt, z. B. "personal-standard". */
+  fabrik: string;
+  /** false, wenn keine Fabrik für diesen Typ registriert ist. Dann kann kein Kurs damit starten. */
+  spielbar: boolean;
 }
 
 export interface KursKurz {
-  id: string; name: string; code: string; spielId: string; spielVersion: number; spielName: string;
+  id: string; name: string; spielId: string; spielVersion: number; spielName: string;
   rolle: Rolle; beginn: string | null; ende: string | null; aktuelleRunde: number; rundenGesamt: number;
+  /** Nur für die Spielleitung, null wenn gesperrt. */
+  codeTeilnehmer: string | null;
+  /** Nur für die Administration, null wenn gesperrt. */
+  codeLeitung: string | null;
 }
+
+export type CodeArt = "teilnehmer" | "leitung";
 
 export interface GruppeDto { id: string; name: string; akteur: string }
 export interface MitgliedDto { benutzerId: string; name: string; email: string; rolle: Rolle; gruppeId: string | null }

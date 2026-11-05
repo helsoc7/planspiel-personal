@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { AppHeader } from "@/components/spiel/Rahmen";
 import { Button, Eingabe, Feld, Hinweis, Karte, Tabs } from "@/components/ui";
@@ -6,6 +7,8 @@ import { useSession } from "@/lib/session";
 
 export function Anmelden() {
   const { anmelden } = useSession();
+  const nav = useNavigate();
+  const [code, setCode] = useState("");
   const [modus, setModus] = useState<"login" | "neu">("login");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -17,8 +20,14 @@ export function Anmelden() {
     e.preventDefault();
     setLaedt(true); setFehler("");
     try {
-      const r = modus === "login" ? await api.anmelden(email, pw) : await api.registrieren(email, name, pw);
-      anmelden(r.token, r.benutzer);
+      if (modus === "login") {
+        const r = await api.anmelden(email, pw);
+        anmelden(r.token, r.benutzer);
+      } else {
+        const r = await api.registrieren(code, email, name, pw);
+        anmelden(r.token, r.benutzer);
+        nav(`/kurse/${r.kursId}`);
+      }
     } catch (err) {
       setFehler((err as Error).message);
     } finally {
@@ -38,12 +47,16 @@ export function Anmelden() {
         <Karte weiss className="p-6">
           <Tabs wert={modus} setzen={setModus} reiter={[["login", "Anmelden"], ["neu", "Registrieren"]]} />
           <form onSubmit={senden} className="mt-5 flex flex-col gap-4">
+            {modus === "neu" && <>
+              <Feld id="code" label="Kurscode"><Eingabe id="code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} required minLength={4} maxLength={20} autoComplete="off" placeholder="Code aus deinem Kurs" /></Feld>
+              <p className="-mt-2 text-xs text-grau">Ein Konto legst du nur mit dem Code an, den du von deiner Spielleitung oder der Administration bekommst. Der Code bestimmt deine Rolle im Kurs.</p>
+            </>}
             {modus === "neu" && <Feld id="name" label="Name"><Eingabe id="name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} autoComplete="name" /></Feld>}
             <Feld id="email" label="E-Mail"><Eingabe id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></Feld>
             <Feld id="pw" label="Passwort"><Eingabe id="pw" type="password" value={pw} onChange={(e) => setPw(e.target.value)} required minLength={modus === "neu" ? 8 : 1} autoComplete={modus === "neu" ? "new-password" : "current-password"} /></Feld>
             {fehler && <Hinweis ton="schlecht">{fehler}</Hinweis>}
             <Button type="submit" laedt={laedt}>{modus === "login" ? "Anmelden" : "Konto anlegen"}</Button>
-            <p className="text-xs text-grau">Demo: helen@demo.de (Spielleitung) oder sara@demo.de (Teilnehmerin), Passwort jeweils „planspiel“.</p>
+            {modus === "login" && <p className="text-xs text-grau">Demo: helen@demo.de (Admin) oder sara@demo.de (Teilnehmerin), Passwort jeweils „planspiel“.</p>}
           </form>
         </Karte>
       </main>

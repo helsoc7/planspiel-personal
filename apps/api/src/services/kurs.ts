@@ -5,8 +5,9 @@
 import { randomInt, randomBytes } from "node:crypto";
 import {
   erlaubterUebergang, type AbgabeEingabe, type AbgabeStatus, type BewertungEingabe, type Entscheidung, type ErgebnisDto,
-  type GruppenEntscheidung, type KursDaten, type KursKurz, type RundenEingabe, type RundenStatus,
+  type CodeArt, type GruppenEntscheidung, type KursDaten, type KursKurz, type RundenEingabe, type RundenStatus,
 } from "@planspiel/core";
+import { hash } from "../auth";
 import * as repo from "../repo";
 import { konflikt, nichtGefunden, ungueltig, verboten } from "../fehler";
 import { paket, spiel } from "../spiele";
@@ -25,25 +26,91 @@ async function nurLeitung(kursId: string, benutzerId: string) {
   return z;
 }
 
+async function istAdmin(benutzerId: string) {
+  return !!(await repo.benutzer.perId(benutzerId))?.istAdmin;
+}
+
 export async function meineKurse(benutzerId: string): Promise<KursKurz[]> {
+  const admin = await istAdmin(benutzerId);
   return (await repo.kurse.vonBenutzer(benutzerId)).map((k) => ({
-    id: k.id, name: k.name, code: k.code, spielId: k.spiel_id, spielVersion: k.spiel_version, spielName: k.spiel_name,
+    id: k.id, name: k.name, spielId: k.spiel_id, spielVersion: k.spiel_version, spielName: k.spiel_name,
     rolle: k.rolle, beginn: k.beginn, ende: k.ende, aktuelleRunde: k.aktuelle_runde, rundenGesamt: k.runden_gesamt,
+    codeTeilnehmer: k.rolle === "leitung" || admin ? k.code_teilnehmer : null,
+    codeLeitung: admin ? k.code_leitung : null,
   }));
 }
 
+// Ohne leicht verwechselbare Zeichen (0/O, 1/I/L)
+const ZEICHEN = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const zufall = (n: number) => Array.from(randomBytes(n), (b) => ZEICHEN[b % ZEICHEN.length]).join("");
+
+/** Teilnehmer-Code: 6 Zeichen. Spielleiter-Code: "SL-" und 8 Zeichen, damit er schwer zu erraten ist. */
+async function neuerCode(art: CodeArt) {
+  for (;;) {
+    const c = art === "leitung" ? `SL-${zufall(8)}` : zufall(6);
+    if (!(await repo.kurse.codeVergeben(c))) return c;
+  }
+}
+
 export async function kursAnlegen(benutzerId: string, d: { name: string; spielId: string; spielVersion: number; beginn?: string; ende?: string }) {
+  if (!(await istAdmin(benutzerId))) throw verboten("Kurse legt nur die Administration an");
   const p = await paket(d.spielId, d.spielVersion).catch(() => { throw ungueltig("Spielpaket nicht gefunden"); });
-  const code = randomBytes(3).toString("hex").toUpperCase();
-  const k = await repo.kurse.anlegen({ ...d, code, von: benutzerId, runden: p.runden.length });
-  return { id: k.id, code: k.code };
+  // Die Fabrik muss das Paket ausführen können, sonst lässt sich der Kurs später nicht spielen
+  try { await spiel(d.spielId, d.spielVersion); } catch (e) { throw ungueltig(`Dieses Planspiel kann nicht gestartet werden: ${(e as Error).message}`); }
+  const k = await repo.kurse.anlegen({ ...d, codeTeilnehmer: await neuerCode("teilnehmer"), codeLeitung: await neuerCode("leitung"), von: benutzerId, runden: p.runden.length });
+  return { id: k.id, codeTeilnehmer: k.code_teilnehmer, codeLeitung: k.code_leitung };
+}
+
+async function kursZumCode(code: string) {
+  const t = await repo.kurse.perCode(code.trim());
+  if (!t) throw nichtGefunden("Dieser Code ist ungültig oder gesperrt");
+  return t;
+}
+
+/** Registrierung ist nur mit einem gültigen Kurscode möglich. Der Code bestimmt die Rolle im Kurs. */
+export async function registrieren(d: { code: string; email: string; name: string; passwort: string }) {
+  const { kurs, rolle } = await kursZumCode(d.code);
+  if (await repo.benutzer.perEmail(d.email)) throw konflikt("Diese E-Mail ist schon registriert. Melde dich an und gib den Code unter „Kurs beitreten“ ein.");
+  const b = await repo.benutzer.anlegenMitKurs(d.email, d.name, await hash(d.passwort), kurs.id, rolle);
+  return { benutzer: b, kursId: kurs.id, rolle };
 }
 
 export async function beitreten(benutzerId: string, code: string) {
-  const k = await repo.kurse.perCode(code.trim());
-  if (!k) throw nichtGefunden("Kein Kurs mit diesem Code");
-  await repo.mitglieder.beitreten(k.id, benutzerId);
-  return { id: k.id };
+  const { kurs, rolle } = await kursZumCode(code);
+  await repo.mitglieder.beitreten(kurs.id, benutzerId, rolle);
+  return { id: kurs.id, rolle: (await repo.mitglieder.von(kurs.id, benutzerId))!.rolle };
+}
+
+/**
+ * Einmalpasswort für ein Kursmitglied. Die Spielleitung setzt es für Teilnehmende zurück,
+ * die Administration zusätzlich für Spielleitungen. Das Admin-Konto selbst ist ausgenommen.
+ */
+export async function passwortZuruecksetzen(kursId: string, benutzerId: string, zielId: string) {
+  const admin = await istAdmin(benutzerId);
+  if (!admin) await nurLeitung(kursId, benutzerId);
+  if (zielId === benutzerId) throw ungueltig("Dein eigenes Passwort änderst du über „Passwort ändern“");
+  const m = await repo.mitglieder.von(kursId, zielId);
+  const ziel = await repo.benutzer.perId(zielId);
+  if (!m || !ziel) throw nichtGefunden("Diese Person ist nicht in diesem Kurs");
+  if (ziel.istAdmin) throw verboten("Das Passwort der Administration kann hier nicht zurückgesetzt werden");
+  if (m.rolle === "leitung" && !admin) throw verboten("Passwörter von Spielleitungen setzt nur die Administration zurück");
+  const passwort = `${zufall(5)}-${zufall(5)}`;
+  await repo.benutzer.passwortSetzen(zielId, await hash(passwort), true);
+  return { passwort, name: ziel.name };
+}
+
+/** Teilnehmer-Code: Spielleitung oder Administration. Spielleiter-Code: nur Administration. */
+export async function codeAendern(kursId: string, benutzerId: string, art: CodeArt, aktion: "neu" | "sperren") {
+  const admin = await istAdmin(benutzerId);
+  if (admin) {
+    if (!(await repo.kurse.perId(kursId).catch(() => undefined))) throw nichtGefunden("Kurs nicht gefunden");
+  } else {
+    if (art === "leitung") throw verboten("Den Spielleiter-Code verwaltet nur die Administration");
+    await nurLeitung(kursId, benutzerId);
+  }
+  const code = aktion === "neu" ? await neuerCode(art) : null;
+  await repo.kurse.codeSetzen(kursId, art, code);
+  return { code };
 }
 
 export async function spielFuerKurs(kursId: string, benutzerId: string) {

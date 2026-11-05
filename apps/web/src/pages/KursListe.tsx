@@ -5,9 +5,11 @@ import { api } from "@/api/client";
 import { useDaten } from "@/api/hooks";
 import { AppHeader } from "@/components/spiel/Rahmen";
 import { Button, Chip, Eingabe, Hinweis, Karte, Laden, Leer, Seitentitel } from "@/components/ui";
+import { useSession } from "@/lib/session";
 
 export function KursListe() {
   const nav = useNavigate();
+  const { ich } = useSession();
   const { daten: kurse } = useDaten(() => api.kurse(), [], 0);
   const [code, setCode] = useState("");
   const [fehler, setFehler] = useState("");
@@ -26,9 +28,9 @@ export function KursListe() {
     <div className="min-h-screen">
       <AppHeader />
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
-        <Seitentitel titel="Meine Kurse" rechts={<Link to="/kurse/neu"><Button variante="sekundaer"><Plus />Kurs anlegen</Button></Link>} />
+        <Seitentitel titel="Meine Kurse" rechts={ich?.istAdmin && <Link to="/kurse/neu"><Button variante="sekundaer"><Plus />Kurs anlegen</Button></Link>} />
         {!kurse ? <Laden /> : kurse.length === 0 ? (
-          <Leer titel="Noch kein Kurs" text="Tritt mit dem Code deiner Spielleitung bei oder lege selbst einen Kurs an." />
+          <Leer titel="Noch kein Kurs" text={ich?.istAdmin ? "Lege einen Kurs an. Danach bekommst du je einen Code für Teilnehmende und Spielleitung." : "Tritt mit dem Code aus deinem Kurs bei."} />
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {kurse.map((k) => (
@@ -48,7 +50,7 @@ export function KursListe() {
           <form onSubmit={beitreten} className="flex flex-wrap items-end gap-3">
             <div className="flex min-w-48 flex-1 flex-col gap-1.5">
               <label htmlFor="code" className="text-sm font-bold text-grau-text">Kurs beitreten</label>
-              <Eingabe id="code" placeholder="Kurscode, z. B. NB2026" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+              <Eingabe id="code" placeholder="Kurscode" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
             </div>
             <Button type="submit" disabled={code.length < 4}>Beitreten</Button>
           </form>

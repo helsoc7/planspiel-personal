@@ -1,0 +1,96 @@
+# Produktivbetrieb auf einem eigenen Server (z. B. one.com, netcup, Hetzner). Anleitung: DEPLOY.md
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Unterschiede zu docker-compose.yml:
+#   - Caddy davor: HTTPS mit automatischem Zertifikat (Let's Encrypt) für DOMAIN
+#   - Nach außen offen sind nur die Ports 80 und 443. Datenbank, API und Web sind nur intern erreichbar.
+#   - Pflichtwerte (DOMAIN, JWT_SECRET, POSTGRES_PASSWORT) müssen in der .env stehen, sonst startet nichts.
+#   - Demodaten sind immer aus, egal was in der .env steht.
+#   - Ein Backup-Dienst sichert die Datenbank jede Nacht nach ./backups
+#   - Alle Dienste starten nach einem Neustart des Servers von selbst wieder.
+services:
+  db:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: planspiel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORT:?POSTGRES_PASSWORT fehlt in der .env}
+      POSTGRES_DB: planspiel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U planspiel -d planspiel"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-slim}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://planspiel:${POSTGRES_PASSWORT}@db:5432/planspiel
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET fehlt in der .env (openssl rand -hex 32)}
+      # Nie Demodaten auf dem Server: helen@demo.de / planspiel wäre sonst ein öffentlicher Admin-Zugang
+      DEMO_DATEN: "0"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+      ADMIN_PASSWORT: ${ADMIN_PASSWORT:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-slim}
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8787
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN fehlt in der .env, z. B. planspiel.example.de}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  backup:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: planspiel
+      PGPASSWORD: ${POSTGRES_PASSWORT}
+      PGDATABASE: planspiel
+      BACKUP_TAGE: ${BACKUP_TAGE:-14}
+    volumes:
+      - ./backups:/backups
+      - ./deploy/backup.sh:/backup.sh:ro
+    entrypoint: ["sh", "/backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

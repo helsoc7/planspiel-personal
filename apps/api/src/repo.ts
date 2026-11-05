@@ -5,21 +5,50 @@ import type { AbgabeDto, AbgabeStatus, BewertungDto, Entscheidung, GruppeDto, Mi
 import { q, tx } from "./db/pool";
 
 export interface KursRow {
-  id: string; name: string; code: string; spiel_id: string; spiel_version: number; beginn: string | null; ende: string | null; erstellt_von: string;
+  id: string; name: string; code_teilnehmer: string | null; code_leitung: string | null; spiel_id: string; spiel_version: number; beginn: string | null; ende: string | null; erstellt_von: string;
 }
 
+type BenutzerRow = { id: string; email: string; name: string; istAdmin: boolean; passwortAendern: boolean };
+const BENUTZER_SEL = `id, email, name, ist_admin as "istAdmin", passwort_aendern as "passwortAendern"`;
+
 export const benutzer = {
-  async anlegen(email: string, name: string, passwortHash: string) {
-    const [b] = await q<{ id: string; email: string; name: string }>(
-      "insert into benutzer(email,name,passwort_hash) values (lower($1),$2,$3) returning id,email,name", [email, name, passwortHash]);
+  async anlegen(email: string, name: string, passwortHash: string, istAdmin = false) {
+    const [b] = await q<BenutzerRow>(
+      `insert into benutzer(email,name,passwort_hash,ist_admin) values (lower($1),$2,$3,$4) returning ${BENUTZER_SEL}`, [email, name, passwortHash, istAdmin]);
     return b;
   },
+  /** Neues Konto und Kursmitgliedschaft in einem Schritt (Registrierung mit Code). */
+  async anlegenMitKurs(email: string, name: string, passwortHash: string, kursId: string, rolle: Rolle) {
+    return tx(async (c) => {
+      const { rows: [b] } = await c.query<BenutzerRow>(
+        `insert into benutzer(email,name,passwort_hash) values (lower($1),$2,$3) returning ${BENUTZER_SEL}`, [email, name, passwortHash]);
+      await c.query("insert into kurs_mitglieder(kurs_id,benutzer_id,rolle) values ($1,$2,$3)", [kursId, b.id, rolle]);
+      return b;
+    });
+  },
+  /** Neues Passwort setzen. einmalig: muss bei der nächsten Anmeldung geändert werden. Alte Sitzungen werden ungültig. */
+  async passwortSetzen(id: string, passwortHash: string, einmalig: boolean) {
+    await q("update benutzer set passwort_hash=$2, passwort_aendern=$3, passwort_version=passwort_version+1 where id=$1", [id, passwortHash, einmalig]);
+  },
+  /** Für die Prüfung der Sitzung: Passwortversion und ob ein Einmalpasswort aktiv ist. */
+  async sitzung(id: string) {
+    const [r] = await q<{ version: number; aendern: boolean }>(
+      "select passwort_version as version, passwort_aendern as aendern from benutzer where id=$1", [id]);
+    return r;
+  },
+  async mitHash(id: string) {
+    const [b] = await q<BenutzerRow & { passwort_hash: string }>(`select ${BENUTZER_SEL}, passwort_hash from benutzer where id=$1`, [id]);
+    return b;
+  },
+  async adminSetzen(id: string) {
+    await q("update benutzer set ist_admin=true where id=$1", [id]);
+  },
   async perEmail(email: string) {
-    const [b] = await q<{ id: string; email: string; name: string; passwort_hash: string }>("select * from benutzer where email=lower($1)", [email]);
+    const [b] = await q<BenutzerRow & { passwort_hash: string }>(`select ${BENUTZER_SEL}, passwort_hash from benutzer where email=lower($1)`, [email]);
     return b;
   },
   async perId(id: string) {
-    const [b] = await q<{ id: string; email: string; name: string }>("select id,email,name from benutzer where id=$1", [id]);
+    const [b] = await q<BenutzerRow>(`select ${BENUTZER_SEL} from benutzer where id=$1`, [id]);
     return b;
   },
 };
@@ -37,11 +66,11 @@ export const spielpakete = {
 };
 
 export const kurse = {
-  async anlegen(k: { name: string; code: string; spielId: string; spielVersion: number; beginn?: string; ende?: string; von: string; runden: number }) {
+  async anlegen(k: { name: string; codeTeilnehmer: string; codeLeitung: string; spielId: string; spielVersion: number; beginn?: string; ende?: string; von: string; runden: number }) {
     return tx(async (c) => {
       const { rows: [kurs] } = await c.query<KursRow>(
-        `insert into kurse(name,code,spiel_id,spiel_version,beginn,ende,erstellt_von) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-        [k.name, k.code, k.spielId, k.spielVersion, k.beginn || null, k.ende || null, k.von]);
+        `insert into kurse(name,code_teilnehmer,code_leitung,spiel_id,spiel_version,beginn,ende,erstellt_von) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+        [k.name, k.codeTeilnehmer, k.codeLeitung, k.spielId, k.spielVersion, k.beginn || null, k.ende || null, k.von]);
       await c.query("insert into kurs_mitglieder(kurs_id,benutzer_id,rolle) values ($1,$2,'leitung')", [kurs.id, k.von]);
       await c.query("insert into runden(kurs_id,nr) select $1, g from generate_series(0,$2-1) g", [kurs.id, k.runden]);
       return kurs;
@@ -51,9 +80,21 @@ export const kurse = {
     const [k] = await q<KursRow>("select * from kurse where id=$1", [id]);
     return k;
   },
-  async perCode(code: string) {
-    const [k] = await q<KursRow>("select * from kurse where upper(code)=upper($1)", [code]);
-    return k;
+  /** Sucht den Kurs zu einem Code. Die Art des Codes bestimmt die Rolle. */
+  async perCode(code: string): Promise<{ kurs: KursRow; rolle: Rolle } | undefined> {
+    const [k] = await q<KursRow & { _rolle: Rolle }>(
+      `select *, case when upper(code_leitung)=upper($1) then 'leitung' else 'teilnehmer' end as _rolle
+       from kurse where upper(code_teilnehmer)=upper($1) or upper(code_leitung)=upper($1)`, [code]);
+    if (!k) return undefined;
+    const { _rolle, ...kurs } = k;
+    return { kurs, rolle: _rolle };
+  },
+  async codeVergeben(code: string) {
+    const r = await q("select 1 from kurse where upper(code_teilnehmer)=upper($1) or upper(code_leitung)=upper($1)", [code]);
+    return r.length > 0;
+  },
+  async codeSetzen(id: string, art: Rolle, code: string | null) {
+    await q(`update kurse set ${art === "leitung" ? "code_leitung" : "code_teilnehmer"}=$2 where id=$1`, [id, code]);
   },
   async vonBenutzer(benutzerId: string) {
     return q<KursRow & { rolle: Rolle; spiel_name: string; aktuelle_runde: number; runden_gesamt: number }>(
@@ -71,8 +112,11 @@ export const mitglieder = {
     const [m] = await q<{ rolle: Rolle; gruppe_id: string | null }>("select rolle, gruppe_id from kurs_mitglieder where kurs_id=$1 and benutzer_id=$2", [kursId, benutzerId]);
     return m;
   },
-  async beitreten(kursId: string, benutzerId: string) {
-    await q("insert into kurs_mitglieder(kurs_id,benutzer_id,rolle) values ($1,$2,'teilnehmer') on conflict do nothing", [kursId, benutzerId]);
+  /** Beitritt mit Rolle. Ein Spielleiter-Code hebt Teilnehmende zur Spielleitung an, nie umgekehrt. */
+  async beitreten(kursId: string, benutzerId: string, rolle: Rolle = "teilnehmer") {
+    await q(`insert into kurs_mitglieder(kurs_id,benutzer_id,rolle) values ($1,$2,$3)
+             on conflict (kurs_id,benutzer_id) do update set rolle='leitung', gruppe_id=null
+             where excluded.rolle='leitung' and kurs_mitglieder.rolle='teilnehmer'`, [kursId, benutzerId, rolle]);
   },
   async liste(kursId: string): Promise<MitgliedDto[]> {
     return q<MitgliedDto>(`select m.benutzer_id as "benutzerId", b.name, b.email, m.rolle, m.gruppe_id as "gruppeId"

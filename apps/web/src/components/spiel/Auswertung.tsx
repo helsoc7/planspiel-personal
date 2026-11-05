@@ -195,19 +195,6 @@ export function VerlaufChart({ paket, gruppen, erg }: { paket: P; gruppen: Grupp
   );
 }
 
-export function PaketKarte({ titel, thema, status, runden, akteure, freigegeben, gewaehlt, waehlen }: {
-  titel: string; thema: string; status: string; runden: string; akteure: string; freigegeben: boolean; gewaehlt: boolean; waehlen: () => void;
-}) {
-  return (
-    <button type="button" onClick={waehlen} disabled={!freigegeben} aria-pressed={gewaehlt}
-      className={cn("block h-full w-full rounded-karte text-left", gewaehlt ? "border-2 border-navy bg-hell-aktiv p-[17px]" : freigegeben ? "border border-grau-linie bg-white p-[18px] hover:border-grau-rahmen" : "cursor-not-allowed border border-dashed border-grau-rahmen bg-[#F7F9FC] p-[18px]")}>
-      <span className="flex items-center justify-between gap-2"><span className="text-lg font-extrabold">{titel}</span><Chip ton={freigegeben ? "gut" : "neutral"}>{status}</Chip></span>
-      <span className="mt-1 block text-sm text-grau-text">{thema}</span>
-      <span className="mt-4 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-grau"><span>{runden}</span><span>{akteure}</span></span>
-    </button>
-  );
-}
-
 /** Aufgeklappte Berechnung des Gesamtwerts: Zusammensetzung jetzt und Entwicklung über die Runden. */
 function Berechnung({ paket, start, verlauf, bis }: { paket: P; start: RundenErgebnis; verlauf: RundenErgebnis[]; bis: number }) {
   const jetzt = bis >= 0 ? verlauf[bis] : start;

@@ -1,0 +1,17 @@
+# HTTPS für die Planspiel-Plattform. Caddy holt und erneuert das Zertifikat selbst.
+# DOMAIN und ACME_EMAIL kommen aus der .env (über docker-compose.prod.yml).
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy web:8080
+}

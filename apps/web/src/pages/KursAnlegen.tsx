@@ -3,8 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { useDaten } from "@/api/hooks";
 import { AppHeader } from "@/components/spiel/Rahmen";
-import { PaketKarte } from "@/components/spiel/Auswertung";
-import { Abschnitt, Button, Chip, Eingabe, Feld, Hinweis, Karte, Laden, Seitentitel } from "@/components/ui";
+import { Abschnitt, Auswahl, Button, Chip, Eingabe, Feld, Hinweis, Karte, Laden, Seitentitel } from "@/components/ui";
 
 export function KursAnlegen() {
   const nav = useNavigate();
@@ -15,7 +14,10 @@ export function KursAnlegen() {
   const [wahl, setWahl] = useState<string>("");
   const [fehler, setFehler] = useState("");
   const [laedt, setLaedt] = useState(false);
-  const gewaehlt = spiele?.find((s) => `${s.id}@${s.version}` === wahl) ?? spiele?.find((s) => s.status === "freigegeben");
+  const startbar = (s: { status: string; spielbar: boolean }) => s.status === "freigegeben" && s.spielbar;
+  const gewaehlt = spiele?.find((s) => `${s.id}@${s.version}` === wahl) ?? spiele?.find(startbar);
+  // Nach Thema gruppiert, damit später mehrere Kontexte (Personal, Projektmanagement, …) übersichtlich bleiben
+  const themen = [...new Set((spiele ?? []).map((s) => s.thema))].sort();
 
   async function anlegen() {
     if (!gewaehlt) return;
@@ -41,15 +43,33 @@ export function KursAnlegen() {
             <Feld id="ende" label="Ende"><Eingabe id="ende" type="date" value={ende} onChange={(e) => setEnde(e.target.value)} /></Feld>
           </Karte>
         </Abschnitt>
-        <Abschnitt n={2} titel="Spielpaket" rechts={gewaehlt && <Chip ton="info">Version {gewaehlt.version} · fest für diesen Kurs</Chip>}>
+        <Abschnitt n={2} titel="Planspiel" rechts={gewaehlt && <Chip ton="info">Version {gewaehlt.version} · fest für diesen Kurs</Chip>}>
           {!spiele ? <Laden /> : (
-            <div className="grid gap-3 md:grid-cols-3">
-              {spiele.map((s) => (
-                <PaketKarte key={`${s.id}@${s.version}`} titel={s.name} thema={s.thema} status={s.status === "freigegeben" ? "Freigegeben" : "Entwurf"}
-                  runden={`${s.runden} Runden`} akteure={`${s.akteure} ${s.begriffAkteure}`} freigegeben={s.status === "freigegeben"}
-                  gewaehlt={gewaehlt === s} waehlen={() => setWahl(`${s.id}@${s.version}`)} />
-              ))}
-            </div>
+            <Karte className="grid gap-4 p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:items-start">
+              <Feld id="spiel" label="Planspiel wählen">
+                <Auswahl id="spiel" value={gewaehlt ? `${gewaehlt.id}@${gewaehlt.version}` : ""} onChange={(e) => setWahl(e.target.value)}>
+                  {!gewaehlt && <option value="">Kein Planspiel verfügbar</option>}
+                  {themen.map((t) => (
+                    <optgroup key={t} label={t}>
+                      {spiele.filter((s) => s.thema === t).map((s) => (
+                        <option key={`${s.id}@${s.version}`} value={`${s.id}@${s.version}`} disabled={!startbar(s)}>
+                          {s.name} · Version {s.version}{s.status !== "freigegeben" ? " (Entwurf)" : !s.spielbar ? " (nicht startbar)" : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Auswahl>
+              </Feld>
+              {gewaehlt && (
+                <div className="flex flex-col gap-2 rounded-lg border border-grau-linie bg-white p-4">
+                  <div className="flex items-center justify-between gap-2"><span className="text-lg font-extrabold">{gewaehlt.name}</span><Chip ton="gut">Freigegeben</Chip></div>
+                  <div className="text-sm text-grau-text">{gewaehlt.thema}</div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-grau">
+                    <span>{gewaehlt.runden} Runden</span><span>{gewaehlt.akteure} {gewaehlt.begriffAkteure}</span><span>Spiellogik: {gewaehlt.fabrik}</span>
+                  </div>
+                </div>
+              )}
+            </Karte>
           )}
         </Abschnitt>
         {fehler && <Hinweis ton="schlecht">{fehler}</Hinweis>}

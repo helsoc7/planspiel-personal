@@ -1,6 +1,6 @@
 /** Kopfzeile und Seitenleiste. */
 import type { ReactNode } from "react";
-import { LogOut } from "lucide-react";
+import { KeyRound, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/cn";
@@ -25,6 +25,11 @@ export function AppHeader({ ort, rolle }: { ort?: string; rolle?: string }) {
             <>
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hell text-xs font-extrabold text-navy">{kuerzel}</span>
               <span className="hidden text-sm md:inline">{ich.name}</span>
+              {!ich.passwortAendern && (
+                <Link to="/passwort" aria-label="Passwort ändern" title="Passwort ändern" className="ml-1 flex h-9 w-9 items-center justify-center rounded-lg hover:bg-navy-dunkel">
+                  <KeyRound className="h-4 w-4" />
+                </Link>
+              )}
               <button onClick={() => { abmelden(); nav("/", { replace: true }); }} aria-label="Abmelden" className="ml-1 flex h-9 w-9 items-center justify-center rounded-lg hover:bg-navy-dunkel">
                 <LogOut className="h-4 w-4" />
               </button>

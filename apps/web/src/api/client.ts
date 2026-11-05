@@ -3,8 +3,8 @@
  * und die Vertragstypen aus @planspiel/core.
  */
 import type {
-  AbgabeDto, AbgabeEingabe, AbgabeStatus, BenutzerDto, BewertungEingabe, ErgebnisDto, GruppeDto, KursDaten, KursKurz,
-  OeffentlichesPaket, RundenStatus, Spielpaket, SpielpaketKurz,
+  AbgabeDto, AbgabeEingabe, AbgabeStatus, BenutzerDto, BewertungEingabe, CodeArt, ErgebnisDto, GruppeDto, KursDaten, KursKurz,
+  OeffentlichesPaket, Rolle, RundenStatus, Spielpaket, SpielpaketKurz,
 } from "@planspiel/core";
 
 const TOKEN = "planspiel-token";
@@ -24,19 +24,25 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
+  // Sitzung abgelaufen (z. B. Passwort wurde zurückgesetzt): abmelden und zur Anmeldung
+  if (res.status === 401 && t && !url.startsWith("/auth/anmelden")) { tokenSetzen(null); window.location.assign("/"); }
   if (!res.ok) throw new ApiFehler(res.status, data?.fehler ?? "Unbekannter Fehler");
   return data as T;
 }
 
 export const api = {
   anmelden: (email: string, passwort: string) => call<{ token: string; benutzer: BenutzerDto }>("POST", "/auth/anmelden", { email, passwort }),
-  registrieren: (email: string, name: string, passwort: string) => call<{ token: string; benutzer: BenutzerDto }>("POST", "/auth/registrieren", { email, name, passwort }),
+  registrieren: (code: string, email: string, name: string, passwort: string) =>
+    call<{ token: string; benutzer: BenutzerDto; kursId: string; rolle: Rolle }>("POST", "/auth/registrieren", { code, email, name, passwort }),
   ich: () => call<BenutzerDto>("GET", "/auth/ich"),
+  passwortAendern: (aktuell: string, neu: string) => call<{ token: string; benutzer: BenutzerDto }>("POST", "/auth/passwort", { aktuell, neu }),
+  passwortZuruecksetzen: (id: string, uid: string) => call<{ passwort: string; name: string }>("POST", `/kurse/${id}/mitglieder/${uid}/passwort`),
 
   spiele: () => call<SpielpaketKurz[]>("GET", "/spiele"),
   kurse: () => call<KursKurz[]>("GET", "/kurse"),
-  kursAnlegen: (d: { name: string; spielId: string; spielVersion: number; beginn?: string; ende?: string }) => call<{ id: string; code: string }>("POST", "/kurse", d),
-  beitreten: (code: string) => call<{ id: string }>("POST", "/kurse/beitreten", { code }),
+  kursAnlegen: (d: { name: string; spielId: string; spielVersion: number; beginn?: string; ende?: string }) => call<{ id: string; codeTeilnehmer: string; codeLeitung: string }>("POST", "/kurse", d),
+  beitreten: (code: string) => call<{ id: string; rolle: Rolle }>("POST", "/kurse/beitreten", { code }),
+  codeAendern: (id: string, art: CodeArt, aktion: "neu" | "sperren") => call<{ code: string | null }>("POST", `/kurse/${id}/codes`, { art, aktion }),
 
   kurs: (id: string) => call<KursDaten>("GET", `/kurse/${id}`),
   spiel: (id: string) => call<Spielpaket | OeffentlichesPaket>("GET", `/kurse/${id}/spiel`),

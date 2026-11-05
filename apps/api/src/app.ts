@@ -2,14 +2,20 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
+import { bremse } from "./bremse";
 import { auth } from "./routes/auth";
 import { kurse } from "./routes/kurse";
 import { spiele } from "./routes/spiele";
+
+const versuche = bremse();
 
 export const app = new Hono()
   .use(cors())
   .use(process.env.NODE_ENV === "test" ? async (_c, n) => n() : logger())
   .get("/api/gesund", (c) => c.json({ ok: true }))
+  .use("/api/auth/registrieren", versuche)
+  .use("/api/auth/anmelden", versuche)
+  .use("/api/kurse/beitreten", versuche)
   .route("/api/auth", auth)
   .route("/api/spiele", spiele)
   .route("/api/kurse", kurse);

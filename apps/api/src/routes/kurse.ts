@@ -18,8 +18,16 @@ export const kurse = new Hono<AuthVars>()
     name: z.string().min(2).max(120), spielId: z.string(), spielVersion: z.number().int(),
     beginn: z.string().optional(), ende: z.string().optional(),
   })), async (c) => c.json(await s.kursAnlegen(c.get("benutzerId"), c.req.valid("json")), 201))
-  .post("/beitreten", zValidator("json", z.object({ code: z.string().min(4).max(12) })), async (c) =>
+  .post("/beitreten", zValidator("json", z.object({ code: z.string().trim().min(4).max(20) })), async (c) =>
     c.json(await s.beitreten(c.get("benutzerId"), c.req.valid("json").code)))
+  .post("/:id/mitglieder/:uid/passwort", zValidator("param", z.object({ id: z.string().uuid(), uid: z.string().uuid() })), async (c) => {
+    const p = c.req.valid("param");
+    return c.json(await s.passwortZuruecksetzen(p.id, c.get("benutzerId"), p.uid));
+  })
+  .post("/:id/codes", zValidator("json", z.object({ art: z.enum(["teilnehmer", "leitung"]), aktion: z.enum(["neu", "sperren"]) })), async (c) => {
+    const d = c.req.valid("json");
+    return c.json(await s.codeAendern(c.req.param("id"), c.get("benutzerId"), d.art, d.aktion));
+  })
   .get("/:id", async (c) => c.json(await s.kursDaten(c.req.param("id"), c.get("benutzerId"))))
   .get("/:id/spiel", async (c) => c.json(await s.spielFuerKurs(c.req.param("id"), c.get("benutzerId"))))
   .get("/:id/ergebnisse", async (c) => c.json(await s.ergebnisse(c.req.param("id"), c.get("benutzerId"), c.req.query("vorschau") === "1")))

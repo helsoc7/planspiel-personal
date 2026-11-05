@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { app } from "./app";
 import { config } from "./config";
+import { adminEinrichten } from "./db/admin";
 import { migrate } from "./db/migrate";
 import { demo, paketeEinspielen } from "./db/seed";
 
@@ -16,5 +17,6 @@ for (let i = 1; ; i++) {
   }
 }
 await paketeEinspielen();
+await adminEinrichten();
 if (process.env.DEMO_DATEN === "1") await demo();
 serve({ fetch: app.fetch, port: config.port }, (i) => console.log(`API läuft auf http://localhost:${i.port}`));
